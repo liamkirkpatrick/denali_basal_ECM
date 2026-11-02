@@ -17,6 +17,9 @@ from ECMclass import ECM
 
 #%% Load data
 project_root = Path(__file__).resolve().parents[2]
+# Exploratory peak/trough windows are references, not editable defect flags.
+sys.path.insert(0, str(project_root / 'agentic_workspace/dip_angles'))
+from feature_ranges import read_ranges, section_ranges, overlay_ranges
 path_to_input_data = project_root / 'data' / 'not_cleaned'
 path_to_output_data = project_root / 'data' / 'clean'
 path_to_metadata = project_root / 'data'
@@ -35,6 +38,8 @@ def print_startup_intro():
         "to data/clean so original inputs remain untouched. Each run\n"
         "shows AC (left pair) and DC (right pair) side-by-side.\n"
         "\n"
+        "Saved peak/trough search windows appear as labeled reference bands.\n"
+        "They do not change cleaning flags (T still marks tephra here).\n"
         "Keyboard and interaction commands:\n"
         "  Drag on ANY subplot (no modifier): mark surface_imperfection (gray)\n"
         "  Hold 't' while dragging: mark tephra_or_layer (orange)\n"
@@ -328,6 +333,14 @@ def process_ecm(entry, entry_number, total_entries):
     ylim_min = np.nanmin(depth_concat) - 0.1
     for axis in all_data_axes:
         axis.set_ylim(ylim_max, ylim_min)
+
+    # Reload on each section so newly saved picker windows are picked up.
+    try:
+        references = section_ranges(read_ranges(), d.core, d.section, d.face)
+        for axis in all_data_axes:
+            overlay_ranges(axis, references, labels=axis in (ax_ac_left, ax_dc_left))
+    except (ValueError, OSError) as exc:
+        print(f"    Could not read feature-search windows: {exc}")
 
     active_side_axes = pair_axes[d.ACorDC]
     for axis in all_data_axes:
