@@ -1,4 +1,4 @@
-"""Native Matplotlib GUI: hold p/t and drag vertically to save feature windows.
+"""AC-only Matplotlib GUI: hold p/t and drag vertically to save feature windows.
 
 Run: conda run --no-capture-output -n allan_hills_exp python \
 agentic_workspace/dip_angles/feature_picker.py
@@ -13,26 +13,42 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.widgets import SpanSelector, Button
 from matplotlib.patches import Patch
+from matplotlib.colors import Normalize
 from feature_ranges import (ROOT, DEFAULT_CSV, COLORS, read_ranges, write_ranges,
                             section_ranges, overlay_ranges)
 
 sys.path.insert(0, str(ROOT/'scripts/core_scripts'))
 from ECMclass import ECM
+from core_names import canonical_core, source_core
+
+
+FLAG_STYLES = {
+    'surface_imperfection': dict(facecolor='black', edgecolor='black', linewidth=0),
+    'tephra_or_layer': dict(facecolor='none', edgecolor='purple', hatch='xx', linewidth=0),
+    'rock_or_debris': dict(facecolor='none', edgecolor='black', hatch='oo', linewidth=0),
+    'core_break': dict(facecolor='none', edgecolor='blue', hatch='///', linewidth=0),
+}
+FLAG_LABELS = ['Surface imperfection', 'Tephra / layer', 'Rock / debris', 'Core break']
 
 
 class FeaturePicker:
     def __init__(self, paths, csv_path=DEFAULT_CSV):
         self.paths = list(paths)
         if not self.paths:
-            raise ValueError('No matching cleaned ECM files.')
+            raise ValueError('No matching cleaned AC ECM files.')
+        if any(path.stem.split('-')[-1] != 'AC' for path in self.paths):
+            raise ValueError('The feature picker accepts AC ECM files only.')
         self.csv_path = Path(csv_path)
         self.rows = read_ranges(self.csv_path)
         self.index = 0
         self.held = set()
         self.drag_kind = None
         self.artists = []
-        self.fig, self.ax = plt.subplots(figsize=(9,9))
-        self.fig.subplots_adjust(left=.13,right=.96,bottom=.22,top=.88)
+        self.fig, self.ax = plt.subplots(figsize=(11.5,9))
+        self.fig.subplots_adjust(left=.1,right=.68,bottom=.22,top=.88)
+        self.colorbar_ax = self.fig.add_axes([.74,.25,.025,.27])
+        self.legend_ax = self.fig.add_axes([.72,.57,.27,.28])
+        self.legend_ax.set_axis_off()
         self.status = self.fig.text(.13,.155,'',fontsize=10)
         self.fig.text(.13,.085,'Hold P + drag: peak   |   Hold T + drag: trough\n'
                       'N/B: next/previous section   U: undo last range   W: save   Q: close\n'
@@ -60,36 +76,62 @@ class FeaturePicker:
             self.selector.disconnect_events()
         self.ax.clear(); self.artists=[]
         self.core,self.section,self.face,self.mode = self.paths[self.index].stem.split('-')
+        self.core = canonical_core(self.core)
         item=ECM(self.core,self.section,self.face,self.mode,self.paths[self.index].parent,ROOT/'data/metadata.csv')
+        # Match basic_plots: trim, normalize outer tracks, then smooth.
+        item.rem_ends(10)
+        item.norm_outside()
         item.smooth(10)
-        # Same top-down map as button_edits_v3's far-left subplot: Spectral,
-        # 10-mm median smoothing, no outside-track scaling, lateral axis reversed.
-        table=pd.DataFrame({'z':item.depth_s,'x':item.y_s,'v':item.meas_s}).pivot(index='z',columns='x',values='v')
-        self.ax.pcolormesh(table.columns,table.index,table.to_numpy(),shading='auto',cmap='Spectral')
-        # Include every raw cleaning flag; preserve narrow flagged intervals.
         bad=np.logical_or.reduce([getattr(item,f)!=0 for f in
             ['button','surface_imperfection','tephra_or_layer','rock_or_debris','core_break']])
+        valid=item.meas[(~bad) & np.isfinite(item.meas)]
+        if not len(valid):
+            raise ValueError(f'No unflagged AC measurements in section {self.section}')
+        lo,hi=np.percentile(valid,[5,95])
+        if lo==hi:
+            pad=max(abs(lo)*.01,1e-15)
+            lo,hi=lo-pad,hi+pad
+        norm=Normalize(lo,hi,clip=True)
+        # Retain the editor's reversed lateral axis and raw flag overlays.
+        table=pd.DataFrame({'z':item.depth_s,'x':item.y_s,'v':item.meas_s}).pivot(index='z',columns='x',values='v')
+        mesh=self.ax.pcolormesh(table.columns,table.index,table.to_numpy(),shading='auto',cmap='Spectral',norm=norm)
+        self.colorbar_ax.clear()
+        self.fig.colorbar(mesh,cax=self.colorbar_ax,label='AC current (A)',extend='both')
+        # Include every raw cleaning flag; preserve narrow flagged intervals.
         tracks=np.sort(item.y_vec)
         spacing=np.min(np.diff(tracks))
         from matplotlib.patches import Rectangle
         for x in tracks:
             idx=np.flatnonzero(item.y==x); idx=idx[np.argsort(item.depth[idx])]
             z=item.depth[idx]; edge=np.r_[z[0],(z[:-1]+z[1:])/2,z[-1]]
-            changes=np.diff(np.r_[False,bad[idx],False].astype(int))
+            # Raw flags retain narrow defects and overlapping classifications.
+            for flag,style in FLAG_STYLES.items():
+                marked=getattr(item,flag)[idx]!=0
+                changes=np.diff(np.r_[False,marked,False].astype(int))
+                for a,b in zip(np.flatnonzero(changes==1),np.flatnonzero(changes==-1)):
+                    self.ax.add_patch(Rectangle((x-spacing/2,edge[a]),spacing,
+                                               edge[b]-edge[a],zorder=3,**style))
+            other=(item.button[idx]!=0) & ~np.logical_or.reduce(
+                [getattr(item,f)[idx]!=0 for f in FLAG_STYLES])
+            changes=np.diff(np.r_[False,other,False].astype(int))
             for a,b in zip(np.flatnonzero(changes==1),np.flatnonzero(changes==-1)):
-                self.ax.add_patch(Rectangle((x-spacing/2,edge[a]),spacing,edge[b]-edge[a],
-                                           facecolor='black',alpha=.5,zorder=3))
+                self.ax.add_patch(Rectangle((x-spacing/2,edge[a]),spacing,
+                                           edge[b]-edge[a],facecolor='gray',linewidth=0,zorder=3))
         self.bounds=(float(item.depth.min()),float(item.depth.max()))
         self.ax.set(xlabel='Distance across core (mm)',ylabel='Depth (m)',
                     xlim=(tracks[-1]+spacing/2,tracks[0]-spacing/2),
                     ylim=(self.bounds[1],self.bounds[0]))
         self.ax.ticklabel_format(axis='y',style='plain',useOffset=False)
-        self.ax.set_title(f'{self.core} · {self.section} · face {self.face} · {self.mode}\n'
+        self.ax.set_title(f'{self.core} · {self.section} · face {self.face} · cleaned {self.mode}\n'
                           f'Section {self.index+1}/{len(self.paths)} · select feature-search windows')
         self.fig.suptitle('ECM manual peak / trough range picker',fontsize=14)
-        self.ax.legend(handles=[Patch(facecolor=COLORS[k],alpha=.35,label=k.title()) for k in COLORS]
-                       +[Patch(facecolor='black',alpha=.5,label='Any cleaning flag')],
-                       loc='upper right',fontsize=8)
+        self.legend_ax.clear()
+        self.legend_ax.set_axis_off()
+        handles=[Patch(**style,label=label) for style,label in zip(FLAG_STYLES.values(),FLAG_LABELS)]
+        handles += [Patch(facecolor='gray',label='Other button flag')]
+        handles += [Patch(facecolor=COLORS[k],alpha=.35,label=k.title()+' search window') for k in COLORS]
+        self.legend_ax.legend(handles=handles,loc='upper left',frameon=False,
+                              title='Flags and selections',fontsize=9,handleheight=2,labelspacing=1)
         self.selector=SpanSelector(self.ax,self.select,'vertical',useblit=True,
                                    props=dict(facecolor='white',edgecolor='black',alpha=.3),
                                    button=1,minspan=.00025,interactive=False)
@@ -173,9 +215,8 @@ class FeaturePicker:
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--core',default='dic1')
+    parser.add_argument('--core',default='DEN13A')
     parser.add_argument('--face',default='t')
-    parser.add_argument('--mode',choices=['AC','DC'],default='DC')
     parser.add_argument('--sections',nargs='+',help='Optional exact section IDs, e.g. 222a 223e')
     parser.add_argument('--csv',type=Path,default=DEFAULT_CSV)
     parser.add_argument('--preview',action='store_true',help='Save first-section PNG without opening a window')
@@ -183,21 +224,21 @@ def main():
     if args.preview: plt.switch_backend('Agg')
     elif 'agg'==matplotlib.get_backend().lower():
         raise RuntimeError('No interactive backend. Run from a local desktop terminal using allan_hills_exp.')
-    paths=sorted((ROOT/'data/clean').glob(f'{args.core}-*-{args.face}-{args.mode}.csv'))
+    paths=sorted((ROOT/'data/clean').glob(f'{source_core(args.core)}-*-{args.face}-AC.csv'))
     if args.sections:
         paths=[p for p in paths if p.stem.split('-')[1] in args.sections]
         absent=set(args.sections)-{p.stem.split('-')[1] for p in paths}
-        if absent: print(f'No {args.mode} data for requested sections: {sorted(absent)}')
+        if absent: print(f'No AC data for requested sections: {sorted(absent)}')
     else:
-        all_sections={p.stem.split('-')[1] for p in (ROOT/'data/clean').glob(f'{args.core}-*-{args.face}-*.csv')}
+        all_sections={p.stem.split('-')[1] for p in (ROOT/'data/clean').glob(f'{source_core(args.core)}-*-{args.face}-*.csv')}
         absent=all_sections-{p.stem.split('-')[1] for p in paths}
-        print(f'Sections skipped (no {args.mode} data): {sorted(absent)}')
+        print(f'Sections skipped (no AC data): {sorted(absent)}')
     # Matplotlib normally binds P to pan. Reserve all GUI shortcuts.
     reserved={'p','t','n','b','u','w','q','backspace'}
     for name in [key for key in matplotlib.rcParams if key.startswith('keymap.')]:
         matplotlib.rcParams[name]=[key for key in matplotlib.rcParams[name] if key not in reserved]
     gui=FeaturePicker(paths,args.csv)
-    print(f'Loaded {len(paths)} {args.mode} sections. CSV: {args.csv}')
+    print(f'Loaded {len(paths)} AC sections. CSV: {args.csv}')
     print('Hold P/T and drag vertically. Autosave after each selection; U undoes; N/B changes section.')
     if args.preview: plt.close(gui.fig)
     else: plt.show()

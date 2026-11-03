@@ -1,0 +1,9 @@
+{
+  "windows": 47,
+  "fits": 47,
+  "picks": 486,
+  "every_track_included": true,
+  "raw_extrema_verified": true,
+  "flagged_and_boundary_picks_retained": true,
+  "slope_and_interval_verified": true
+}

@@ -12,6 +12,7 @@ import pandas as pd
 import numpy as np
 import math
 from pathlib import Path
+from core_names import canonical_core, source_core
 
 
 #%% Define ECM Class
@@ -22,7 +23,8 @@ class ECM:
 
         # open metadata csv
         meta = pd.read_csv(metadataloc)
-        row = meta.loc[meta['core']==core]
+        core = canonical_core(core)
+        row = meta.loc[meta['core'].map(canonical_core)==core]
         row = row.loc[row['section']==section]
         row = row.loc[row['face']==face]
         row = row.loc[row['ACorDC']==ACorDC]
@@ -31,13 +33,14 @@ class ECM:
         self.time = row['time'].values[0]
         self.y_left = row['Y_left'].values[0]
         self.y_right = row['Y_right'].values[0]
-        self.core = row['core'].values[0]
+        self.core = canonical_core(row['core'].values[0])
         self.section = row['section'].values[0]
         self.face = row['face'].values[0]
         self.ACorDC = row['ACorDC'].values[0]
 
         # open core csv
-        fname = self.core+'-'+self.section+'-'+self.face+'-'+self.ACorDC+'.csv'
+        fname = source_core(self.core)+'-'+self.section+'-'+self.face+'-'+self.ACorDC+'.csv'
+        self.source_filename = fname
         raw = pd.read_csv(Path(path_to_data) / fname)
 
         # assign vectors

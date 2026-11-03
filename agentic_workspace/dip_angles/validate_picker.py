@@ -15,7 +15,13 @@ def validate():
     # Keep automated test selections out of ordinary GUI snapshots and user CSVs.
     original_snapshot=FeaturePicker.snapshot
     FeaturePicker.snapshot=lambda self: None
-    paths=sorted((ROOT/'data/clean').glob('*-DC.csv'))[:2]
+    paths=sorted((ROOT/'data/clean').glob('*-AC.csv'))[:2]
+    try:
+        FeaturePicker([next((ROOT/'data/clean').glob('*-DC.csv'))])
+    except ValueError as exc:
+        assert 'AC ECM files only' in str(exc)
+    else:
+        raise AssertionError('DC input must be rejected')
     with tempfile.TemporaryDirectory() as tmp:
         csv=Path(tmp)/'ranges.csv'
         gui=FeaturePicker(paths,csv)
@@ -54,7 +60,7 @@ def validate():
         # Real reference overlays preserve both source-mode label and range bounds.
         ranges=section_ranges(read_ranges(csv),gui.core,gui.section,gui.face)
         fig,ax=plt.subplots(); artists=overlay_ranges(ax,ranges)
-        assert len(artists)==4 and 'DC peak' in artists[-1].get_text()
+        assert len(artists)==4 and 'AC peak' in artists[-1].get_text()
         assert np.allclose(artists[1].get_ydata(),ranges.iloc[0].depth_min_m)
         plt.close(fig)
         # Save a clearly named UI validation image, not a user selection file.
@@ -85,8 +91,8 @@ def validate():
         plt.show=lambda: None
         namespace['process_ecm']({'ecm':item,'note':'GUI integration validation'},1,1)
         editor=plt.gcf()
-        assert any('DC peak' in text.get_text() for text in editor.axes[0].texts)
-        assert any('DC peak' in text.get_text() for text in editor.axes[3].texts)
+        assert any('AC peak' in text.get_text() for text in editor.axes[0].texts)
+        assert any('AC peak' in text.get_text() for text in editor.axes[3].texts)
         plt.close(editor); plt.show=original_show
     FeaturePicker.snapshot=original_snapshot
     print('PASS: P/T mouse drags, early key release, reverse drag, unmodified drag ignored, '

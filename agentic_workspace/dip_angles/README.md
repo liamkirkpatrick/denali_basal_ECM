@@ -1,8 +1,12 @@
-# Exploratory Denali dip workflow
+# Denali manual-range dip workflow
 
-Use the existing `allan_hills_exp` environment. No additional packages are needed.
+Use `simple_manual_dips.ipynb` with the existing `allan_hills_exp` environment. This is the retained dip-analysis workflow.
 
-## Manual feature-range GUI
+For every track, take the raw maximum (peak) or minimum (trough) inside each exact inclusive manual range. Fit a line using every track's pick. There are no quality filters, flag exclusions, smoothing of picks, trimming, outlier removal, angle limits, or window expansion. Tied extrema use the shallowest sample. Nonfinite or missing measurements are reported. A line needs two distinct track positions; a residual-based confidence interval needs three.
+
+Depth increases downward. The signed apparent dip is `atan(depth slope)`, fitting depth and lateral position in mm. The 95% Student-t slope interval is transformed to angle. It has no additional uncertainty floor. These intervals describe regression uncertainty conditional on the picks.
+
+## Manual range picker
 
 From the repository root:
 
@@ -10,55 +14,27 @@ From the repository root:
 conda run --no-capture-output -n allan_hills_exp python agentic_workspace/dip_angles/feature_picker.py
 ```
 
-This opens **DC only** by default, using the button editor's map style: 10 mm median smoothing, Spectral colors, reversed lateral axis, and depth increasing downward. All cleaning flags are shaded black. The nine sections with DC data are available; the seven without DC are listed as skipped. `--mode AC` is available if AC reference picking is wanted later. There is no automatic fallback between modes.
+The picker loads cleaned AC ECM only. Hold **P** or **T** and drag vertically to select a peak or trough window. **N/B** navigates sections, **U** undoes the last range in the current section, **W** saves, and **Q** closes. Every selection/undo autosaves to `manual_feature_ranges.csv`. Saved ranges reappear on reopening. Disable toolbar pan/zoom before selecting. Do not run multiple pickers against the same CSV.
 
-- Hold **P**, then drag vertically over a peak search window.
-- Hold **T**, then drag vertically over a trough search window.
-- **N / B** or the Next / Previous buttons change section.
-- **U** or Undo removes the last saved range in the current section/mode, including after reopening.
-- **W** or Save explicitly saves; every selection and undo already autosaves.
-- **Q** or Close exits. Saved ranges reappear next time.
-- Toolbar zoom/pan works normally, but turn it off before selecting ranges. P is reserved for peak selection, not pan.
+Optional `--sections 214abcdefg 217abc` limits the displayed sections. `--preview` saves a PNG without opening a desktop window. `--csv PATH` uses another selection file; analysis and the button editor read the default file.
 
-The CSV is `agentic_workspace/dip_angles/manual_feature_ranges.csv`, created on the first selection/save. Do not run multiple picker instances against the same CSV. The file contains one row per **search window**, not final per-track extrema:
+The GUI follows `basic_plots` display scaling and shows raw flag annotations. `button_edits_v3.py` reads saved windows as reference overlays without changing defect flags. In that editor, T retains its tephra-marking meaning.
 
-| Field | Meaning |
-|---|---|
-| selection_id | Stable unique selection ID |
-| core, section, face | Measurement identifiers |
-| source_mode | DC or AC reference map used to select the range |
-| kind | peak or trough in that reference signal |
-| depth_min_m, depth_max_m | Ordered absolute depth bounds, metres |
+## Outputs
 
-Selections can overlap flags: these are manual search requests, not accepted dip observations. Subsequent AC fitting must still reject flagged samples. DC feature polarity/position need not match AC, so DC windows require AC review before being used for dip estimates. The angle pipeline does not yet consume these windows; that comes after manual selection.
+- `simple_results/fits.csv`: every fit, including slope, angle, 95% interval bounds/full width, R², and RMS residual.
+- `simple_results/picks.csv`: each pick's raw source row, current, depth, flag status, tie count, and residual.
+- `simple_results/input_windows.csv` and `input_sha256.json`: input snapshot and fingerprints.
+- `figures/dip_angles/simple_manual/`: one figure per section and `DEN13A-overall-dips.png`, with all estimates on one continuous depth axis.
+- `figures/dip_angles/manual_ranges/`: picker snapshots.
 
-`button_edits_v3.py` reloads this CSV for each section and overlays the matching windows on both AC and DC panels, labeled with the source mode. They are read-only reference bands; they do not set defect flags. In that editor, **T retains its existing tephra-marking behavior**. To see edits saved after a section was opened, reopen that section.
+AC maps use median smoothing and outer-track normalization **only for display**. They retain a current colorbar and flag legend. Angle estimates use uniform black markers with horizontal 95% error bars; there is no uncertainty color scale. Peak/trough triangles distinguish feature types.
 
-Optional commands:
+`simple_manual.py` contains the analysis and plotting functions. `build_simple_notebook.py` regenerates and executes the notebook. Validation:
 
 ```bash
-# Review only specific DC sections:
-conda run --no-capture-output -n allan_hills_exp python agentic_workspace/dip_angles/feature_picker.py --sections 222a 223e
-
-# Render first section without opening a desktop window:
-conda run -n allan_hills_exp python agentic_workspace/dip_angles/feature_picker.py --preview
-```
-
-GUI snapshots are saved to `figures/dip_angles/manual_ranges/`. Custom `--csv PATH` files are supported by the picker; the button editor reads the default CSV only.
-
-## Automatic dip calculations
-
-Open `dip_angles.ipynb` using `allan_hills_exp`. The notebook explains the algorithm and regenerates section figures and result tables. Supporting implementation: `dip_workflow.py`.
-
-Current relaxed settings disable the 2° confidence-interval cutoff, minimum lateral span, and minimum track fraction. Four picks are still required. Prominence, flag exclusion, residual, R², smoothing stability, and leave-one-track-out stability criteria remain. Angle intervals are still reported; their color scale adapts by section. These are conditional precision intervals, not confidence in feature identity.
-
-`results/` contains fits, individual picks, detected candidates, eligible/rejected fit hypotheses, section summaries, input hashes, and settings. Generated figures are under `figures/dip_angles/dic1/` and ignored by Git. No source data are modified.
-
-## Validation
-
-```bash
-conda run -n allan_hills_exp python agentic_workspace/dip_angles/validate_workflow.py
+conda run -n allan_hills_exp python agentic_workspace/dip_angles/validate_simple.py
 conda run -n allan_hills_exp python agentic_workspace/dip_angles/validate_picker.py
 ```
 
-The picker checks simulate actual Matplotlib mouse/key events, exercise autosave/reload/undo, and verify reference overlays in the button editor. They use temporary CSVs, never the user selection file. The UI validation screenshot is named `figures/dip_angles/manual_ranges/validation-example.png`. Native desktop interaction still needs the user's visual run.
+The first checks every actual pick against the raw extremum, complete track coverage, and independent slope/interval calculations. The second checks GUI interactions, persistence, and button-editor overlays using temporary selection files.

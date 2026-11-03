@@ -200,7 +200,7 @@ def process_ecm(entry, entry_number, total_entries):
     })
 
     # Filename for saving
-    fname = f"{d.core}-{d.section}-{d.face}-{d.ACorDC}.csv"
+    fname = d.source_filename
 
     # Unique Y-dimension values
     y_values = sorted(df['Y_dimension(mm)'].unique())
@@ -510,7 +510,7 @@ def process_ecm(entry, entry_number, total_entries):
             df.to_csv(path_to_output_data / fname, index=False)
             figure_dir = project_root / 'figures' / 'button_edits'
             figure_dir.mkdir(parents=True, exist_ok=True)
-            fig.savefig(figure_dir / f'{Path(fname).stem}.png', dpi=150)
+            fig.savefig(figure_dir / f'{d.core}-{d.section}-{d.face}-{d.ACorDC}.png', dpi=150)
             print(f"    Saved {fname}")
             plt.close(fig)
 
