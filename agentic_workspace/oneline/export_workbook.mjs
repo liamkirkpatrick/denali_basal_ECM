@@ -1,0 +1,42 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Workbook, SpreadsheetFile } from '@oai/artifact-tool';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(here, '../..');
+const input = JSON.parse(await fs.readFile(path.join(here, 'workbook_input.json'), 'utf8'));
+const wb = Workbook.create();
+const sheet = wb.worksheets.add('Oneline');
+sheet.showGridLines = false;
+sheet.getRange('A1').write([input.columns, ...input.rows]);
+const end = input.rows.length + 1;
+sheet.getRange(`A1:K${end}`).format.font = {name: 'Arial', size: 10};
+sheet.getRange('A1:K1').format = {fill: '#24475C', font: {name:'Arial', size:10, bold:true, color:'#FFFFFF'}, rowHeight:26};
+sheet.getRange(`A2:A${end}`).format.numberFormat = '0.00';
+for (const range of [`B2:D${end}`, `F2:H${end}`]) sheet.getRange(range).format.numberFormat = '0.0000E+00';
+for (const col of ['E','I']) sheet.getRange(`${col}2:${col}${end}`).format.numberFormat = '0';
+sheet.getRange(`J2:K${end}`).format.numberFormat = '0.000';
+sheet.getRange(`A1:K${end}`).format.columnWidth = 16;
+sheet.freezePanes.freezeRows(1);
+const methods = wb.worksheets.add('Methods and sources');
+methods.showGridLines = false;
+methods.getRange('A1:B1').values = [['Method', 'Definition']];
+methods.getRange('A2').write(input.methods);
+methods.getRange('A13:E13').values = [['Source file', 'Mode', 'Input samples', 'Retained samples', 'Excluded samples']];
+methods.getRange('A14').write(input.sources);
+methods.getRange('A1:E38').format.font = {name: 'Arial', size:10};
+methods.getRange('A1:A38').format.columnWidth = 46;
+methods.getRange('B1:B38').format.columnWidth = 64;
+methods.getRange('C1:E38').format.columnWidth = 22;
+methods.getRange('B2:B10').format.wrapText = true;
+methods.getRange('A2:B10').format.rowHeight = 44;
+for (const range of ['A1:B1','A13:E13']) methods.getRange(range).format = {fill:'#24475C', font:{name:'Arial',size:10,bold:true,color:'#FFFFFF'},rowHeight:26};
+wb.recalculate();
+console.log((await wb.inspect({kind:'table',range:'Oneline!A1:K4',include:'values,formulas',tableMaxRows:4,tableMaxCols:11})).ndjson);
+for (const [sheetName, range, file] of [['Oneline','A1:K12','workbook_preview.png'], ['Methods and sources','A1:E17','methods_preview.png']]) {
+  const preview = await wb.render({sheetName, range, scale:1.4, format:'png'});
+  await fs.writeFile(path.join(here,file), new Uint8Array(await preview.arrayBuffer()));
+}
+const output = await SpreadsheetFile.exportXlsx(wb);
+await output.save(path.join(root,'data/processed/DEN13A_oneline_1cm.xlsx'));

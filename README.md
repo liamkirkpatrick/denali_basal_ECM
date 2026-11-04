@@ -56,3 +56,11 @@ Quick start / Instructions for use
      jupyter lab
 
    - Processing utilities are in `scripts/core_scripts/`
+
+Core naming
+-----------
+The core is named **DEN13A** in metadata, analyses, figures, and processed output names.
+Original measurement CSV filenames in `data/clean/` and `data/not_cleaned/` retain
+the `dic1-` prefix. `scripts/core_scripts/core_names.py` maps between the public
+core name and that source filename prefix; source paths in provenance tables
+therefore still use the original filenames.
